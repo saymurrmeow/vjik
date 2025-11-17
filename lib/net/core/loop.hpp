@@ -20,7 +20,7 @@ class loop {
   using Handler = std::function<bool()>;
 
 public:
-  loop() {};
+  loop() : shutdown_(false) {};
   loop(loop &) = delete;
   loop &operator=(loop &) = delete;
   // TODO: move constructor/assigment....

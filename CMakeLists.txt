@@ -18,7 +18,6 @@ add_library(vjnet INTERFACE)
 
 target_include_directories(vjnet INTERFACE
   ${CMAKE_SOURCE_DIR}/lib/net/core
-  ${CMAKE_SOURCE_DIR}/lib/net/proto
 )
 
 add_executable(vjik bin/vjik.cpp)
