@@ -1,14 +1,14 @@
 #ifndef __VJIK_NET_STUN_HPP
 #define __VJIK_NET_STUN_HPP
 
-#include "loop.hpp"
+#include <arpa/inet.h>
 #include <cstdint>
-#include <functional>
 #include <netdb.h>
 #include <random>
 #include <string>
 #include <iostream>
 #include <sys/socket.h>
+#include <unistd.h>
 
 namespace vjik {
 namespace net {
@@ -63,12 +63,29 @@ private:
   std::string transacion_id_;
 };
 
+inline void fill_stun_buffer(const message& msg, std::array<uint8_t, 20>& buf) {
+    buf.fill(0);
+
+    uint16_t type = static_cast<uint16_t>(msg.type());
+    uint16_t type_n = htons(type);
+
+    uint16_t length_n = 0;
+
+    uint32_t cookie_n = htonl(magic_cookie);
+
+    const std::string& tid = msg.transaction_id();
+    uint8_t tid_bytes[12] = {0};
+
+    std::memcpy(tid_bytes, tid.data(), std::min<size_t>(tid.size(), 12));
+    std::memcpy(buf.data() + 0, &type_n,    sizeof(type_n));
+    std::memcpy(buf.data() + 2, &length_n,  sizeof(length_n));
+    std::memcpy(buf.data() + 4, &cookie_n,  sizeof(cookie_n));
+    std::memcpy(buf.data() + 8, tid_bytes,  sizeof(tid_bytes));
+}
+
 class proto {
 public:
-  proto() : socket_(get_socket()), ev_loop_() {
-    ev_loop_.watch_read_ops_async(socket_, std::bind(write_message_handler{socket_}));
-    ev_loop_.run();
-  }
+  proto() : socket_(get_socket()) {}
 
 private:
   class write_message_handler {
@@ -85,33 +102,78 @@ private:
   };
 
   auto get_socket () const -> int {
-    const char* stun_host = "stun.l.google.com";
     const char* stun_port = "19302";
-
-    struct addrinfo hints{};
+    int sock_fd;
+    struct addrinfo hints, *servinfo, *p;
+    int rv;
+    std::memset(&hints, 0, sizeof(hints));
     hints.ai_family   = AF_INET;
     hints.ai_socktype = SOCK_DGRAM;
 
-    struct addrinfo* res = nullptr;
-    int err = getaddrinfo(stun_host, stun_port, &hints, &res);
-    if (err != 0) {
-        std::cerr << "getaddrinfo: " << gai_strerror(err) << "\n";
-        return 1;
+    for (const auto &stun_host : { "stun.l.google.com", "stun1.l.google.com" }) {
+      if((rv = getaddrinfo(stun_host, stun_port, &hints, &servinfo)) != 0) {
+          std::cerr << "getaddrinfo: " << gai_strerror(rv) << "\n";
+          return 1;
+      }
+
+      for (p = servinfo; p != NULL; p = p->ai_next) {
+        if ((sock_fd = socket(p->ai_family, p->ai_socktype, p->ai_protocol)) == -1) {
+          perror("socket");
+          continue;
+        }
+
+        if (connect(sock_fd, p->ai_addr, p->ai_addrlen)) {
+          ::close(sock_fd);
+          perror("socket connect");
+          continue;
+        }
+
+        break;
+      }
+
+      if (p == nullptr) {
+        std::cerr << "failed to create stun client socket" << std::endl;
+        // TODO: handle error
+      }
+
+      char ipstr[INET6_ADDRSTRLEN];
+      if (p->ai_family == AF_INET) {
+          struct sockaddr_in *ipv4 = (struct sockaddr_in *)p->ai_addr;
+          inet_ntop(AF_INET, &ipv4->sin_addr, ipstr, sizeof(ipstr));
+      } else {
+          struct sockaddr_in6 *ipv6 = (struct sockaddr_in6 *)p->ai_addr;
+          inet_ntop(AF_INET6, &ipv6->sin6_addr, ipstr, sizeof(ipstr));
+      }
+
+      std::cout << "Connected to " << ipstr << "\n";
+
+      int nbytes;
+      auto msg = message{message_type::BINDING_REQUEST};
+      std::array<uint8_t, 20> buf{};
+      fill_stun_buffer(msg, buf);
+
+      if ((nbytes = ::send(sock_fd, buf.data(), buf.size(), 0)) == -1) {
+          std::perror("send");
+          std::cerr << "Error on try send binding request\n";
+      }
+
+      auto recv_buf = std::array<char, 2048>{};
+      if ((nbytes = ::recv(sock_fd, recv_buf.data(), recv_buf.size(), 0)) == -1) {
+        std::cerr << "Error on try recv binding request" << "\n";
+      }
+
+      std::cout << "=== STUN Response (" << nbytes << " bytes) ===\n";
+      for (int i = 0; i < nbytes; ++i) {
+        printf("%02X ", static_cast<unsigned char>(recv_buf[i]));
+      }
+      std::cout << "\n";
     }
 
-    int sock = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
-    if (sock < 0) {
-        perror("socket");
-        freeaddrinfo(res);
-        return 1;
-    }
-
-    return sock;
+    return sock_fd;
   } 
 
 private:
   int socket_;
-  core::loop ev_loop_;
 };
 
 } // namespace stun
