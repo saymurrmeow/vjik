@@ -193,6 +193,8 @@ private:
       struct sockaddr_in6 *ipv6 = (struct sockaddr_in6 *)p->ai_addr;
       inet_ntop(AF_INET6, &ipv6->sin6_addr, ipstr, sizeof(ipstr));
     }
+    
+    freeaddrinfo(servinfo);
 
     std::cout << "Connected to " << ipstr << "\n";
 
