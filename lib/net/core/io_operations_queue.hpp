@@ -34,8 +34,19 @@ public:
   }
 
   template <typename Descriptor_Set>
-  auto dispatch_descriptors(const Descriptor_Set& descriptors) const -> void {
+  auto get_descriptors(Descriptor_Set& descriptors)
+  {
     typename operation_map::iterator i = operations_.begin();
+    while (i != operations_.end())
+    {
+      descriptors.set(i->first);
+      ++i;
+    }
+  }
+
+  template <typename Descriptor_Set>
+  auto dispatch_io_operations(const Descriptor_Set& descriptors) {
+    auto i = operations_.begin();
     while (i != operations_.end())
     {
       typename operation_map::iterator op_iter = i++;
@@ -46,22 +57,19 @@ public:
         this_op->next_ = cleanup_operations_;
         cleanup_operations_ = this_op;
         bool done = this_op->invoke();
-        if (done)
-        {
+        if (done) {
           if (!op_iter->second)
             operations_.erase(op_iter);
-        }
-        else
-        {
+        } else {
           cleanup_operations_ = this_op->next_;
           this_op->next_ = op_iter->second;
           op_iter->second = this_op;
-        }
+      }
       }
     }
   }
 
-  auto cleanup_operations() const noexcept -> void {
+  auto cleanup_operations() {
     while (cleanup_operations_) {
       op_base* next_op = cleanup_operations_->next_;
       cleanup_operations_->next_ = 0;
@@ -84,7 +92,7 @@ private:
 
   protected:
     typedef bool (*invoke_func_type)(op_base *);
-    typedef bool (*destroy_func_type)(op_base *);
+    typedef void (*destroy_func_type)(op_base *);
     op_base(Descriptor desc, invoke_func_type invoke_func,
             destroy_func_type destroy_func) 
     : desc_(desc),
@@ -108,14 +116,15 @@ private:
   public:
     op(Descriptor desc, Handler handler) 
       : op_base(desc, &op<Handler>::invoke_handler,
-                &op<Handler>::destroy_handler)
+                &op<Handler>::destroy_handler),
+        handler_(handler)
     {}
 
     static bool invoke_handler(op_base *base) {
       return static_cast<op<Handler>*>(base)->handler_();
     }
 
-    static bool destroy_handler(op_base *base) {
+    static void destroy_handler(op_base *base) {
       delete static_cast<op<Handler>*>(base);
     }
 

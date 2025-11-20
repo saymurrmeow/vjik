@@ -3,12 +3,16 @@
 
 #include <arpa/inet.h>
 #include <cstdint>
+#include <functional>
 #include <netdb.h>
+#include <print>
 #include <random>
 #include <string>
 #include <iostream>
 #include <sys/socket.h>
 #include <unistd.h>
+
+#include "loop.hpp"
 
 namespace vjik {
 namespace net {
@@ -85,24 +89,70 @@ inline void fill_stun_buffer(const message& msg, std::array<uint8_t, 20>& buf) {
 
 class proto {
 public:
-  proto() : socket_(get_socket()) {}
+  proto(core::loop &loop) 
+    : socket_(get_socket()),
+      loop_(loop) {
+        loop_.watch_write_ops_async(socket_, std::bind(write_message_handler{socket_, &loop}));
+      }
 
 private:
   class write_message_handler {
   public:
-    write_message_handler(int sock_fd) : sock_fd_(sock_fd) {}
+    write_message_handler(int sock_fd, core::loop *loop) 
+      : sock_fd_(sock_fd),
+        loop_(loop) {}
+
   public:
     bool operator()() {
+      int nbytes;
       auto msg = message{message_type::BINDING_REQUEST};
+      std::array<uint8_t, 20> buf{};
+      fill_stun_buffer(msg, buf);
+
+      if ((nbytes = ::send(sock_fd_, buf.data(), buf.size(), 0)) == -1) {
+        std::perror("send");
+        std::cerr << "Error on try send binding request\n";
+      }
+
+      loop_->watch_read_ops_async(sock_fd_, std::bind(read_message_handler{sock_fd_}));
+
       return true;
     }
   
   private:
     int sock_fd_;
+    core::loop *loop_;
   };
+
+  class read_message_handler {
+  public:
+    read_message_handler(int sock_fd) : sock_fd_(sock_fd) {}
+
+  public:
+    bool operator()() {
+      int nbytes;
+      auto recv_buf = std::array<char, 2048>{};
+      if ((nbytes = ::recv(sock_fd_, recv_buf.data(), recv_buf.size(), 0)) == -1) {
+        std::cerr << "Error on try recv binding request" << "\n";
+      }
+
+      std::println("STUN Response {} bytes", nbytes);
+      for (int i = 0; i < nbytes; ++i) {
+        printf("%02X ", static_cast<unsigned char>(recv_buf[i]));
+      }
+      std::cout << "\n";
+
+      return true;
+    }
+    
+    private:
+      int sock_fd_;
+  };
+
 
   auto get_socket () const -> int {
     const char* stun_port = "19302";
+    const auto stun_host = "stun.l.google.com";
     int sock_fd;
     struct addrinfo hints, *servinfo, *p;
     int rv;
@@ -110,70 +160,49 @@ private:
     hints.ai_family   = AF_INET;
     hints.ai_socktype = SOCK_DGRAM;
 
-    for (const auto &stun_host : { "stun.l.google.com", "stun1.l.google.com" }) {
-      if((rv = getaddrinfo(stun_host, stun_port, &hints, &servinfo)) != 0) {
-          std::cerr << "getaddrinfo: " << gai_strerror(rv) << "\n";
-          return 1;
-      }
-
-      for (p = servinfo; p != NULL; p = p->ai_next) {
-        if ((sock_fd = socket(p->ai_family, p->ai_socktype, p->ai_protocol)) == -1) {
-          perror("socket");
-          continue;
-        }
-
-        if (connect(sock_fd, p->ai_addr, p->ai_addrlen)) {
-          ::close(sock_fd);
-          perror("socket connect");
-          continue;
-        }
-
-        break;
-      }
-
-      if (p == nullptr) {
-        std::cerr << "failed to create stun client socket" << std::endl;
-        // TODO: handle error
-      }
-
-      char ipstr[INET6_ADDRSTRLEN];
-      if (p->ai_family == AF_INET) {
-          struct sockaddr_in *ipv4 = (struct sockaddr_in *)p->ai_addr;
-          inet_ntop(AF_INET, &ipv4->sin_addr, ipstr, sizeof(ipstr));
-      } else {
-          struct sockaddr_in6 *ipv6 = (struct sockaddr_in6 *)p->ai_addr;
-          inet_ntop(AF_INET6, &ipv6->sin6_addr, ipstr, sizeof(ipstr));
-      }
-
-      std::cout << "Connected to " << ipstr << "\n";
-
-      int nbytes;
-      auto msg = message{message_type::BINDING_REQUEST};
-      std::array<uint8_t, 20> buf{};
-      fill_stun_buffer(msg, buf);
-
-      if ((nbytes = ::send(sock_fd, buf.data(), buf.size(), 0)) == -1) {
-          std::perror("send");
-          std::cerr << "Error on try send binding request\n";
-      }
-
-      auto recv_buf = std::array<char, 2048>{};
-      if ((nbytes = ::recv(sock_fd, recv_buf.data(), recv_buf.size(), 0)) == -1) {
-        std::cerr << "Error on try recv binding request" << "\n";
-      }
-
-      std::cout << "=== STUN Response (" << nbytes << " bytes) ===\n";
-      for (int i = 0; i < nbytes; ++i) {
-        printf("%02X ", static_cast<unsigned char>(recv_buf[i]));
-      }
-      std::cout << "\n";
+    if((rv = getaddrinfo(stun_host, stun_port, &hints, &servinfo)) != 0) {
+        std::cerr << "getaddrinfo: " << gai_strerror(rv) << "\n";
+        return 1;
     }
+
+    for (p = servinfo; p != NULL; p = p->ai_next) {
+      if ((sock_fd = socket(p->ai_family, p->ai_socktype, p->ai_protocol)) == -1) {
+        perror("socket");
+        continue;
+      }
+
+      if (connect(sock_fd, p->ai_addr, p->ai_addrlen)) {
+        ::close(sock_fd);
+        perror("socket connect");
+        continue;
+      }
+
+      break;
+    }
+
+    if (p == nullptr) {
+      std::cerr << "failed to create stun client socket" << std::endl;
+      // TODO: handle error
+    }
+
+    char ipstr[INET6_ADDRSTRLEN];
+    if (p->ai_family == AF_INET) {
+      struct sockaddr_in *ipv4 = (struct sockaddr_in *)p->ai_addr;
+      inet_ntop(AF_INET, &ipv4->sin_addr, ipstr, sizeof(ipstr));
+    } else {
+      struct sockaddr_in6 *ipv6 = (struct sockaddr_in6 *)p->ai_addr;
+      inet_ntop(AF_INET6, &ipv6->sin6_addr, ipstr, sizeof(ipstr));
+    }
+
+    std::cout << "Connected to " << ipstr << "\n";
 
     return sock_fd;
   } 
 
 private:
   int socket_;
+  // WARN: refactor
+  core::loop &loop_;
 };
 
 } // namespace stun
