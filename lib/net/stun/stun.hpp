@@ -89,7 +89,7 @@ inline void fill_stun_buffer(const message& msg, std::array<uint8_t, 20>& buf) {
 
 class proto {
 public:
-  proto(core::loop &loop) 
+  proto(core::event_loop &loop) 
     : socket_(get_socket()),
       loop_(loop) {
         loop_.watch_write_ops_async(socket_, std::bind(write_message_handler{socket_, &loop}));
@@ -98,7 +98,7 @@ public:
 private:
   class write_message_handler {
   public:
-    write_message_handler(int sock_fd, core::loop *loop) 
+    write_message_handler(int sock_fd, core::event_loop *loop) 
       : sock_fd_(sock_fd),
         loop_(loop) {}
 
@@ -121,7 +121,7 @@ private:
   
   private:
     int sock_fd_;
-    core::loop *loop_;
+    core::event_loop *loop_;
   };
 
   class read_message_handler {
@@ -204,7 +204,7 @@ private:
 private:
   int socket_;
   // WARN: refactor
-  core::loop &loop_;
+  core::event_loop &loop_;
 };
 
 } // namespace stun

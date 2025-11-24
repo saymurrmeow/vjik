@@ -23,3 +23,8 @@ target_include_directories(vjnet INTERFACE
 
 add_executable(vjik bin/vjik.cpp)
 target_link_libraries(vjik PRIVATE vjnet)
+
+if (BUILD_TESTS)
+  add_subdirectory("tests")
+endif()
+

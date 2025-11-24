@@ -56,21 +56,21 @@ namespace vjik {
 namespace net {
 namespace core {
 
-class loop {
+class event_loop {
   using Handler = std::function<bool()>;
 
 public:
-  loop() 
+  event_loop() 
     : shutdown_(false),
       read_queue_(),
       write_queue_() {};
 
-  loop(loop &) = delete;
-  loop &operator=(loop &) = delete;
+  event_loop(event_loop &) = delete;
+  event_loop &operator=(event_loop &) = delete;
   // TODO: move constructor/assigment....
-  loop(loop &&);
-  loop &operator=(loop &&);
-  virtual ~loop() {}
+  event_loop(event_loop &&);
+  event_loop &operator=(event_loop &&);
+  virtual ~event_loop() {}
 
 public:
   auto run() {
@@ -94,6 +94,10 @@ public:
       read_queue_.cleanup_operations();
       write_queue_.cleanup_operations();
     }
+  }
+
+  auto shutdown() noexcept {
+    shutdown_ -= true;
   }
 
   auto watch_read_ops_async(int sock_fd, Handler h) {
