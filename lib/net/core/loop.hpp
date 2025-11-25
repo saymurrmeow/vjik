@@ -97,7 +97,7 @@ public:
   }
 
   auto shutdown() noexcept {
-    shutdown_ -= true;
+    shutdown_ = true;
   }
 
   auto watch_read_ops_async(int sock_fd, Handler h) {
