@@ -3,7 +3,6 @@
 
 #include <arpa/inet.h>
 #include <cstdint>
-#include <functional>
 #include <netdb.h>
 #include <print>
 #include <random>

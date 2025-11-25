@@ -15,10 +15,9 @@ if (CMAKE_EXPORT_COMPILE_COMMANDS)
 endif()
 
 add_library(vjnet INTERFACE)
-
 target_include_directories(vjnet INTERFACE
-  ${CMAKE_SOURCE_DIR}/lib/net/core
-  ${CMAKE_SOURCE_DIR}/lib/net/stun
+  ${CMAKE_SOURCE_DIR}/include/net/core
+  ${CMAKE_SOURCE_DIR}/include/net/stun
 )
 
 add_executable(vjik bin/vjik.cpp)
